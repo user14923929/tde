@@ -43,7 +43,6 @@ pub enum StatusbarPosition {
     Bottom,
 }
 
-
 impl Default for Theme {
     fn default() -> Self {
         Self {
@@ -84,8 +83,8 @@ impl Config {
         if path.exists() {
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read config: {}", path.display()))?;
-            let cfg: Config = toml::from_str(&text)
-                .with_context(|| "Failed to parse config TOML")?;
+            let cfg: Config =
+                toml::from_str(&text).with_context(|| "Failed to parse config TOML")?;
             Ok(cfg)
         } else {
             let default = Config::default();

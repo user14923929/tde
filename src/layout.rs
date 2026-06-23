@@ -9,13 +9,17 @@ pub enum SplitDir {
 
 #[derive(Debug, Clone)]
 pub struct Pane {
+    #[allow(dead_code)]
     pub id: usize,
     pub title: String,
 }
 
 impl Pane {
     pub fn new(id: usize, title: impl Into<String>) -> Self {
-        Self { id, title: title.into() }
+        Self {
+            id,
+            title: title.into(),
+        }
     }
 }
 
@@ -46,7 +50,9 @@ impl LayoutManager {
     }
 
     pub fn close_focused(&mut self) {
-        if self.panes.len() <= 1 { return; }
+        if self.panes.len() <= 1 {
+            return;
+        }
         self.panes.remove(self.focused);
         if self.focused >= self.panes.len() {
             self.focused = self.panes.len() - 1;
@@ -54,26 +60,31 @@ impl LayoutManager {
     }
 
     pub fn focus_next(&mut self) {
-        if self.panes.is_empty() { return; }
+        if self.panes.is_empty() {
+            return;
+        }
         self.focused = (self.focused + 1) % self.panes.len();
     }
 
     pub fn focus_prev(&mut self) {
-        if self.panes.is_empty() { return; }
+        if self.panes.is_empty() {
+            return;
+        }
         self.focused = (self.focused + self.panes.len() - 1) % self.panes.len();
     }
 
     /// Returns a Rect per pane, tiled inside `area`.
     pub fn compute_rects(&self, area: Rect) -> Vec<Rect> {
-        if self.panes.is_empty() { return vec![]; }
+        if self.panes.is_empty() {
+            return vec![];
+        }
         let n = self.panes.len() as u16;
         let dir = match self.split {
             SplitDir::Horizontal => Direction::Horizontal,
-            SplitDir::Vertical   => Direction::Vertical,
+            SplitDir::Vertical => Direction::Vertical,
         };
-        let constraints: Vec<Constraint> = (0..n)
-            .map(|_| Constraint::Ratio(1, n as u32))
-            .collect();
+        let constraints: Vec<Constraint> =
+            (0..n).map(|_| Constraint::Ratio(1, n as u32)).collect();
         Layout::default()
             .direction(dir)
             .constraints(constraints)

@@ -25,7 +25,7 @@ Written in Rust using [ratatui](https://ratatui.rs).
 ## Install
 
 ```bash
-git clone https://gitlab.com/yourname/tde.git
+git clone https://gitlab.com/user14923929/tde.git
 cd tde
 cargo build --release
 ./target/release/tde
