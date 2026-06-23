@@ -121,13 +121,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
                         KeyCode::Down          => launcher.select_next(),
                         KeyCode::Up            => launcher.select_prev(),
                         KeyCode::Backspace     => launcher.pop_char(),
-                        KeyCode::Enter         => {
-                            if let Some(app) = launcher.selected_app() {
-                                // In a real TDE, we'd spawn this inside the focused pane.
-                                // For now just log it.
-                                let _ = app;
+                        KeyCode::Enter => {
+                            if let Some(app) = launcher.selected_app().map(str::to_owned) {
+                                launcher.hide();
+                                // Suspend TUI, hand the terminal to the child process
+                                disable_raw_mode()?;
+                                execute!(
+                                    terminal.backend_mut(),
+                                    LeaveAlternateScreen,
+                                    DisableMouseCapture
+                                )?;
+                                terminal.show_cursor()?;
+
+                                std::process::Command::new(&app).status().ok();
+
+                                // Restore TUI after the app exits
+                                enable_raw_mode()?;
+                                execute!(
+                                    terminal.backend_mut(),
+                                    EnterAlternateScreen,
+                                    EnableMouseCapture
+                                )?;
+                                terminal.clear()?;
+                            } else {
+                                launcher.hide();
                             }
-                            launcher.hide();
                         }
                         KeyCode::Char(c)       => launcher.push_char(c),
                         _                      => {}
