@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub theme: Theme,
@@ -43,15 +43,6 @@ pub enum StatusbarPosition {
     Bottom,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            theme: Theme::default(),
-            keybinds: Keybinds::default(),
-            statusbar: StatusbarConfig::default(),
-        }
-    }
-}
 
 impl Default for Theme {
     fn default() -> Self {

@@ -50,7 +50,10 @@ impl Statusbar {
         // so we just append at the end)
         if self.cfg.show_clock {
             let now = Local::now().format("%H:%M:%S").to_string();
-            segments.push(Span::styled(format!(" {} ", now), Style::default().fg(Color::Yellow)));
+            segments.push(Span::styled(
+                format!(" {} ", now),
+                Style::default().fg(Color::Yellow),
+            ));
         }
 
         let line = Line::from(segments);
