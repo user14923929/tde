@@ -1,0 +1,27 @@
+[package]
+name = "tde"
+version = "0.1.0"
+edition = "2021"
+description = "TDE — Terminal Desktop Environment"
+license = "MIT"
+repository = "https://gitlab.com/user14923929.gitlab-ci.yml/tde"
+readme = "README.md"
+
+[[bin]]
+name = "tde"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+dirs = "5"
+chrono = { version = "0.4", features = ["clock"] }
+sysinfo = "0.33"
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+opt-level = 3
+strip = true
