@@ -1,10 +1,10 @@
 [package]
 name = "tde"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "TDE — Terminal Desktop Environment"
 license = "MIT"
-repository = "https://gitlab.com/user14923929.gitlab-ci.yml/tde"
+repository = "https://github.com/user14923929/tde"
 readme = "README.md"
 
 [[bin]]
@@ -21,6 +21,8 @@ dirs = "5"
 chrono = { version = "0.4", features = ["clock"] }
 sysinfo = "0.33"
 tokio = { version = "1", features = ["full"] }
+portable-pty = "0.8"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
 
 [profile.release]
 opt-level = 3

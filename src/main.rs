@@ -1,7 +1,11 @@
 mod config;
 mod launcher;
 mod layout;
+mod notifications;
+mod plugin;
+mod pty;
 mod statusbar;
+mod workspace;
 
 use anyhow::Result;
 use crossterm::{
@@ -9,8 +13,9 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use layout::{LayoutManager, SplitDir};
 use launcher::Launcher;
+use notifications::NotificationDaemon;
+use plugin::PluginManager;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -19,6 +24,8 @@ use ratatui::{
     Terminal,
 };
 use statusbar::Statusbar;
+use workspace::WorkspaceManager;
+
 use std::{
     io,
     time::{Duration, Instant},
@@ -36,7 +43,11 @@ fn main() -> Result<()> {
     let res = run_app(&mut terminal, cfg);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     if let Err(e) = res {
@@ -45,10 +56,23 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::Config) -> Result<()> {
-    let mut layout_mgr = LayoutManager::new();
+fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    cfg: config::Config,
+) -> Result<()> {
+    // --- subsystems ---
+    let mut workspaces = WorkspaceManager::new();
     let mut launcher = Launcher::new();
     let mut statusbar = Statusbar::new(cfg.statusbar.clone());
+    let mut notif = NotificationDaemon::new();
+
+    // Lua plugin system
+    let plugins = PluginManager::new()?;
+    plugins.register_api(notif.sender())?;
+    plugins.load_all()?;
+    plugins.call_hook("on_startup")?;
+
+    notif.tx.send("TDE v0.1.1 started".into()).ok();
 
     let tick = Duration::from_millis(500);
     let mut last_tick = Instant::now();
@@ -57,16 +81,25 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
         terminal.draw(|frame| {
             let size = frame.area();
 
-            // Split area: statusbar (1 row) + main content
+            // Layout: workspace bar (1) | content (min) | statusbar (1)
             let root = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Min(1),
+                    Constraint::Length(1),
+                ])
                 .split(size);
 
-            let content_area = root[0];
-            let bar_area = root[1];
+            let ws_area = root[0];
+            let content_area = root[1];
+            let bar_area = root[2];
 
-            // Render panes
+            // Workspace bar
+            workspaces.render(frame, ws_area);
+
+            // Panes
+            let layout_mgr = workspaces.current_layout();
             let rects = layout_mgr.compute_rects(content_area);
             for (i, pane) in layout_mgr.panes.iter().enumerate() {
                 if let Some(&rect) = rects.get(i) {
@@ -78,13 +111,17 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
                     };
                     let block = Block::default()
                         .borders(Borders::ALL)
-                        .border_type(if is_focused { BorderType::Thick } else { BorderType::Plain })
+                        .border_type(if is_focused {
+                            BorderType::Thick
+                        } else {
+                            BorderType::Plain
+                        })
                         .border_style(border_style)
                         .title(format!(" {} ", pane.title))
                         .title_style(Style::default().add_modifier(Modifier::BOLD));
 
                     let help = Paragraph::new(
-                        "  Press SPACE to open launcher\n  Tab / BackTab — switch panes\n  H / V — split pane\n  X — close pane\n  Q / Ctrl-C — quit"
+                        "  SPACE — launcher    Tab/BackTab — focus\n  H/V — split          X — close pane\n  1-9 — workspace      Q/Ctrl-C — quit",
                     )
                     .block(block)
                     .style(Style::default().fg(Color::DarkGray));
@@ -99,32 +136,35 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
             if launcher.visible {
                 launcher.render(frame, size);
             }
+
+            // Notification toasts
+            notif.render(frame, size);
         })?;
 
-        // Tick: refresh sysinfo
+        // Tick
         if last_tick.elapsed() >= tick {
             statusbar.refresh();
+            notif.tick();
             last_tick = Instant::now();
         }
 
         // Events
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
-                // Ctrl-C always quits
+                // Ctrl-C: always quit
                 if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
                     return Ok(());
                 }
 
                 if launcher.visible {
                     match key.code {
-                        KeyCode::Esc           => launcher.hide(),
-                        KeyCode::Down          => launcher.select_next(),
-                        KeyCode::Up            => launcher.select_prev(),
-                        KeyCode::Backspace     => launcher.pop_char(),
+                        KeyCode::Esc => launcher.hide(),
+                        KeyCode::Down => launcher.select_next(),
+                        KeyCode::Up => launcher.select_prev(),
+                        KeyCode::Backspace => launcher.pop_char(),
                         KeyCode::Enter => {
                             if let Some(app) = launcher.selected_app().map(str::to_owned) {
                                 launcher.hide();
-                                // Suspend TUI, hand the terminal to the child process
                                 disable_raw_mode()?;
                                 execute!(
                                     terminal.backend_mut(),
@@ -135,7 +175,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
 
                                 std::process::Command::new(&app).status().ok();
 
-                                // Restore TUI after the app exits
                                 enable_raw_mode()?;
                                 execute!(
                                     terminal.backend_mut(),
@@ -143,23 +182,43 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, cfg: config::C
                                     EnableMouseCapture
                                 )?;
                                 terminal.clear()?;
+                                notif.tx.send(format!("{app} exited")).ok();
                             } else {
                                 launcher.hide();
                             }
                         }
-                        KeyCode::Char(c)       => launcher.push_char(c),
-                        _                      => {}
+                        KeyCode::Char(c) => launcher.push_char(c),
+                        _ => {}
                     }
                 } else {
+                    let layout_mgr = workspaces.current_layout();
                     match key.code {
-                        KeyCode::Char('q')     => return Ok(()),
-                        KeyCode::Char(' ')     => launcher.show(),
-                        KeyCode::Tab           => layout_mgr.focus_next(),
-                        KeyCode::BackTab       => layout_mgr.focus_prev(),
-                        KeyCode::Char('h')     => layout_mgr.split_pane(SplitDir::Horizontal),
-                        KeyCode::Char('v')     => layout_mgr.split_pane(SplitDir::Vertical),
-                        KeyCode::Char('x')     => layout_mgr.close_focused(),
-                        _                      => {}
+                        // Quit
+                        KeyCode::Char('q') => return Ok(()),
+                        // Launcher
+                        KeyCode::Char(' ') => launcher.show(),
+                        // Pane focus
+                        KeyCode::Tab => layout_mgr.focus_next(),
+                        KeyCode::BackTab => layout_mgr.focus_prev(),
+                        // Pane splits
+                        KeyCode::Char('h') => {
+                            layout_mgr.split_pane(layout::SplitDir::Horizontal)
+                        }
+                        KeyCode::Char('v') => layout_mgr.split_pane(layout::SplitDir::Vertical),
+                        KeyCode::Char('x') => layout_mgr.close_focused(),
+                        // Workspace switching: 1-9
+                        KeyCode::Char(c @ '1'..='9') => {
+                            let idx = c as usize - '1' as usize;
+                            workspaces.switch_to(idx);
+                            notif
+                                .tx
+                                .send(format!("Workspace {}", idx + 1))
+                                .ok();
+                        }
+                        // Workspace prev/next
+                        KeyCode::Char('[') => workspaces.prev(),
+                        KeyCode::Char(']') => workspaces.next(),
+                        _ => {}
                     }
                 }
             }
